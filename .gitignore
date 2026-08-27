@@ -1,0 +1,28 @@
+# Python environments and interpreter artefacts
+.venv/
+.uv-python/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test, type-check, coverage, and build caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system clutter
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
