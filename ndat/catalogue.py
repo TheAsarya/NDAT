@@ -15,7 +15,7 @@ def _sql_string(path: Path) -> str:
 
 
 def update_catalogue(config: DataConfig) -> list[str]:
-    """Create or refresh stable views for locally present source datasets."""
+    """Create or refresh stable views for locally present source and derived data."""
     config.ensure_directories()
     available: list[str] = []
     with duckdb.connect(str(config.catalogue_path)) as connection:
@@ -33,4 +33,25 @@ def update_catalogue(config: DataConfig) -> list[str]:
                 "union_by_name = true, hive_partitioning = false)"
             )
             available.append(definition.view_name)
+        derived_name = "lb_weekly_role"
+        derived_files = list(
+            (config.derived_root / derived_name).glob(
+                "season=*/threshold=*/data.parquet"
+            )
+        )
+        connection.execute(f'DROP VIEW IF EXISTS "{derived_name}"')
+        if derived_files:
+            parquet_glob = _sql_string(
+                config.derived_root
+                / derived_name
+                / "season=*"
+                / "threshold=*"
+                / "data.parquet"
+            )
+            connection.execute(
+                f'CREATE VIEW "{derived_name}" AS '
+                f"SELECT * FROM read_parquet('{parquet_glob}', "
+                "union_by_name = true, hive_partitioning = false)"
+            )
+            available.append(derived_name)
     return available

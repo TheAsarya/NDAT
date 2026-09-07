@@ -1,8 +1,9 @@
 # NDAT
 
-NDAT is an NFL Data Analysis Tool built on NFLverse. Stage 2 establishes a
-canonical, inspectable local data layer; it does not yet provide saved analyses,
-fantasy scoring, linebacker-role inference, dashboards, or natural-language queries.
+NDAT is an NFL Data Analysis Tool built on NFLverse. Its first analysis tracks
+weekly linebacker defensive snap share as a configurable proxy for a full-time
+role. See [`docs/stage-3-linebacker-roles.md`](docs/stage-3-linebacker-roles.md)
+for the definition, scoring details, commands, and limitations.
 
 ## Architecture and ownership
 
@@ -102,6 +103,28 @@ with duckdb.connect("data/ndat.duckdb", read_only=True) as connection:
 DuckDB views contain filesystem paths, so run the `catalogue` command after moving a
 configured external data root. SQL execution itself remains entirely local.
 
+## Build the Stage 3 linebacker-role analysis
+
+Fetch the three required source partitions explicitly, then build the derived data
+and self-contained HTML visualization. Analysis never downloads missing inputs:
+
+```powershell
+uv run python -m ndat.data fetch snap_counts --season 2025
+uv run python -m ndat.data fetch rosters --season 2025
+uv run python -m ndat.data fetch player_stats --season 2025
+
+# Default 85% threshold
+uv run python -m ndat.lb_roles --season 2025
+
+# Comparison at 90%; 90 is also accepted
+uv run python -m ndat.lb_roles --season 2025 --threshold 0.90
+```
+
+Each threshold produces an ignored Parquet partition and HTML file below
+`data/derived/lb_weekly_role/`. All linebacker weeks, including non-qualifying
+ones, remain in the Parquet data and the stable DuckDB view `lb_weekly_role`.
+The HTML view filters to qualifying cells and groups stable player rows by team.
+
 ## Provenance
 
 `data/manifest.json` is lightweight JSON metadata, not a data-version-control
@@ -112,15 +135,15 @@ column names and Polars types, a SHA-256 schema fingerprint, upstream identity
 whether recorded files remain present. The manifest and catalogue are ignored local
 generated state.
 
-## Stage 3 readiness and R interoperability
+## R interoperability
 
 The season-partitioned layout supports game- and play-level data rather than only
 player-season aggregates. nflreadpy currently exposes the inputs expected for the
 planned three-down linebacker work: weekly stats, defensive snap counts,
 play-by-play, play participation, rosters, and schedules. Participation is historical
 from 2016 and excludes the in-progress season; snap counts are available from 2012.
-Stage 3 can fetch matching seasons into the already-defined partitions and join by
-NFLverse player/game/team identifiers. Stage 2 does not infer any roles.
+Matching seasons use the already-defined partitions and join by NFLverse
+player/game/team identifiers.
 
 R can use `arrow::read_parquet("data/source/.../data.parquet")` for a partition or
 `DBI::dbConnect(duckdb::duckdb(), "data/ndat.duckdb", read_only = TRUE)` to query the
