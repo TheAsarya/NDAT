@@ -67,12 +67,24 @@ uv run python -m ndat.data fetch rosters --season 2025
 uv run python -m ndat.data fetch player_stats --season 2025
 ```
 
-Build 85% and 90% versions:
+Build individual 85% and 80% data partitions:
 
 ```powershell
 uv run python -m ndat.lb_roles --season 2025
-uv run python -m ndat.lb_roles --season 2025 --threshold 0.90
+uv run python -m ndat.lb_roles --season 2025 --threshold 0.80
 ```
+
+The normal weekly command refreshes all three inputs, builds both partitions, and
+creates the Excel workbook:
+
+```powershell
+uv run python -m ndat.lb_workbook --season 2026 --refresh
+```
+
+Use `--top-rank`, `--second-rank`, and `--recent-weeks` to change the highlighting
+bands and recent window. Use `--primary-threshold` and `--comparison-threshold` to
+change the two snap-share cutoffs. `--regular-season-end` controls which week is the
+last one included in season and recent-form highlights.
 
 The output boundary is persisted because it gives future SQL a stable semantic
 object without repeating identity and scoring joins. Each reproducible partition is
@@ -90,17 +102,19 @@ Longitudinal columns include `first_qualifying_week`, `qualifying_weeks`, curren
 and longest qualifying streak, `lost_after_qualifying`, `reacquired`, and a compact
 `role_state`. A bye has no row and therefore does not create a false loss event.
 
-The adjacent `linebacker_roles.html` is self-contained. It shows qualifying weeks
-only, with teams and full player names in stable rows, weekly fantasy points as the
-primary cell content, and snap share as smaller text and a tooltip. Acquisition and
-reacquisition have restrained highlighting. Use `--html PATH` to choose another
-output location.
+The season workbook contains one matrix for each configured snap-share threshold
+and a filterable weekly-detail sheet. Matrix cells show qualifying weeks only, with
+weekly fantasy points and snap share. Weekly cell colours show scoring ranks;
+player-name highlights show cumulative regular-season ranks; team-cell highlights
+show ranks across the latest common NFL-week window. Playoffs are excluded from the
+season and recent highlights. The title, explanatory note, header rows, team and
+player columns remain frozen while navigating.
 
 ## 2025 validation
 
 The completed 2025 dataset contains 3,896 linebacker-game observations. There are
-854 qualifying player-weeks at 85% and 729 at 90%, so the higher cutoff removes 125
-borderline observations. All 32 teams and 116 qualifying players appear at 85%.
+854 qualifying player-weeks at 85% and 972 at 80%. All 32 teams and 116 qualifying
+players appear at 85%.
 Full-season high-snap examples include Bobby Wagner, Zack Baun, Jack Campbell,
 Kaden Elliss, and Demario Davis. Qualifying weekly point totals range from 0 to 25
 after applying the tackle-for-loss proxy. Mid-range rotational players remain in the
@@ -109,5 +123,5 @@ and reacquisition events appear in real data; for example, Akeem Davis-Gaither l
 and later reacquires qualification.
 
 The 85% view retains meaningful near-full-time weeks while still excluding typical
-rotational deployment. The 90% comparison is materially stricter, but this finding
-does not change the architectural default.
+rotational deployment. The 80% comparison exposes borderline roles without changing
+the architectural default.

@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 import pytest
+from openpyxl import load_workbook
 
 from ndat.config import DataConfig
 from ndat.lb_roles import (
@@ -13,9 +14,9 @@ from ndat.lb_roles import (
     build_season,
     derive_weekly_roles,
     normalize_threshold,
-    render_html,
     score_player_stats,
 )
+from ndat.lb_workbook import write_workbook
 
 
 STAT_DEFAULTS = {
@@ -170,7 +171,7 @@ def test_longitudinal_acquisition_retention_loss_and_reacquisition() -> None:
     assert result["reacquired"].to_list() == [False, False, False, False, True, False]
 
 
-def test_stable_output_html_and_registered_duckdb_view(tmp_path: Path) -> None:
+def test_stable_output_and_registered_duckdb_view(tmp_path: Path) -> None:
     config = DataConfig.from_project(project_root=tmp_path, data_root=tmp_path / "data")
     manager_paths = {
         name: config.source_root / name / "season=2025" / "data.parquet"
@@ -184,15 +185,35 @@ def test_stable_output_html_and_registered_duckdb_view(tmp_path: Path) -> None:
     first, path, unsupported = build_season(2025, config=config)
     first_bytes = path.read_bytes()
     second, _, _ = build_season(2025, config=config)
-    html_path = render_html(second, tmp_path / "roles.html")
 
     assert first.equals(second)
     assert path.read_bytes() == first_bytes
     assert unsupported == []
-    assert "Alex Example" in html_path.read_text(encoding="utf-8")
-    assert "BAL" in html_path.read_text(encoding="utf-8")
-    assert "broader than a strictly run-specific stuff" in html_path.read_text(
-        encoding="utf-8"
-    )
     with duckdb.connect(str(config.catalogue_path), read_only=True) as connection:
         assert connection.execute("SELECT count(*) FROM lb_weekly_role").fetchone() == (3,)
+
+
+def test_workbook_navigation_values_and_highlights(tmp_path: Path) -> None:
+    snap, roster, stats = source_frames()
+    primary = derive_weekly_roles(snap, roster, stats, threshold=0.85)
+    comparison = derive_weekly_roles(snap, roster, stats, threshold=0.80)
+    destination = write_workbook(
+        2025,
+        [(0.85, primary), (0.80, comparison)],
+        tmp_path / "linebacker_roles_2025.xlsx",
+    )
+
+    workbook = load_workbook(destination)
+    assert workbook.sheetnames == ["85% Roles", "80% Roles", "Weekly detail"]
+    assert workbook["85% Roles"].freeze_panes == "C4"
+    assert workbook["80% Roles"].freeze_panes == "C4"
+    assert workbook["Weekly detail"].freeze_panes == "C2"
+    assert workbook["85% Roles"]["A1"].value == (
+        "2025 linebacker snap-share roles at 85%"
+    )
+    assert workbook["85% Roles"]["C4"].value is None
+    assert workbook["85% Roles"]["D4"].value == "2.0 pts\n85% snaps"
+    assert workbook["85% Roles"]["B4"].fill.fgColor.rgb == "FF674EA7"
+    assert workbook["85% Roles"]["A4"].fill.fgColor.rgb == "FF0F766E"
+    assert workbook["85% Roles"].auto_filter.ref == "A3:E4"
+    assert "WeeklyRoleDetail" in workbook["Weekly detail"].tables

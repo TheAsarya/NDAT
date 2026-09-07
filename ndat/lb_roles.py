@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import html
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from ndat.manager import DataManager
 DEFAULT_FULL_TIME_SNAP_THRESHOLD = 0.85
 LINEBACKER_POSITION = "LB"
 DERIVED_VIEW_NAME = "lb_weekly_role"
+SOURCE_DATASETS = ("snap_counts", "rosters", "player_stats")
 
 
 @dataclass(frozen=True)
@@ -254,9 +254,10 @@ def add_longitudinal_history(frame: pl.DataFrame) -> pl.DataFrame:
 
 def _source_frames(config: DataConfig, season: int) -> tuple[pl.DataFrame, ...]:
     manager = DataManager(config)
-    required = ("snap_counts", "rosters", "player_stats")
     missing = [
-        name for name in required if not manager.partition_path(name, season).exists()
+        name
+        for name in SOURCE_DATASETS
+        if not manager.partition_path(name, season).exists()
     ]
     if missing:
         commands = "; ".join(
@@ -266,7 +267,8 @@ def _source_frames(config: DataConfig, season: int) -> tuple[pl.DataFrame, ...]:
             f"Missing local source data for {season}: {', '.join(missing)}. Run: {commands}"
         )
     return tuple(
-        pl.read_parquet(manager.partition_path(name, season)) for name in required
+        pl.read_parquet(manager.partition_path(name, season))
+        for name in SOURCE_DATASETS
     )
 
 
@@ -305,74 +307,10 @@ def build_season(
     return frame, destination, unsupported
 
 
-def render_html(frame: pl.DataFrame, destination: Path) -> Path:
-    qualifying = frame.filter(pl.col("qualifies_full_time")).sort(
-        ["team", "player_name", "week"]
-    )
-    weeks = sorted(frame["week"].unique().to_list())
-    season = int(frame["season"][0]) if frame.height else 0
-    threshold = float(frame["role_threshold"][0]) if frame.height else 0
-    cells: dict[tuple[str, str, int], dict[str, object]] = {
-        (str(row["team"]), str(row["player_id"]), int(row["week"])): row
-        for row in qualifying.to_dicts()
-    }
-    players = qualifying.select("team", "player_id", "player_name").unique().sort(
-        ["team", "player_name"]
-    )
-    groups: list[str] = []
-    for team in players["team"].unique(maintain_order=True):
-        team_players = players.filter(pl.col("team") == team)
-        groups.append(
-            f'<tr class="team"><th colspan="{len(weeks) + 1}">{html.escape(str(team))}</th></tr>'
-        )
-        for player in team_players.to_dicts():
-            row_cells = []
-            for week in weeks:
-                value = cells.get((str(team), str(player["player_id"]), int(week)))
-                if value is None:
-                    row_cells.append('<td class="empty"></td>')
-                else:
-                    state = html.escape(str(value["role_state"]))
-                    row_cells.append(
-                        f'<td class="qualified {state}" title="{value["defensive_snap_pct"]:.0%} defensive snaps; {state}">'
-                        f'<strong>{value["fantasy_points"]:.1f} pts</strong>'
-                        f'<small>{value["defensive_snap_pct"]:.0%} snaps</small></td>'
-                    )
-            groups.append(
-                f'<tr><th class="player">{html.escape(str(player["player_name"]))}</th>'
-                + "".join(row_cells)
-                + "</tr>"
-            )
-    week_headers = "".join(f"<th>W{week}</th>" for week in weeks)
-    document = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>NDAT {season} linebacker roles</title>
-<style>
-:root{{--ink:#17202a;--muted:#637083;--line:#dce2e8;--team:#172c45;--cell:#e8f2ff;--acq:#dff4e7;--re:#fff0c2}}
-body{{font:14px system-ui,sans-serif;color:var(--ink);margin:2rem;background:#f7f9fb}}
-h1{{margin-bottom:.25rem}} p{{color:var(--muted);margin-top:0}}
-.table-wrap{{overflow:auto;background:white;border:1px solid var(--line);border-radius:8px}}
-table{{border-collapse:collapse;min-width:100%}} th,td{{border:1px solid var(--line);padding:.55rem;text-align:center;white-space:nowrap}}
-thead th{{position:sticky;top:0;background:#eef2f6;z-index:2}} .player{{text-align:left;position:sticky;left:0;background:white;z-index:1}}
-.team th{{background:var(--team);color:white;text-align:left;font-size:1rem}} .qualified{{background:var(--cell)}}
-.qualified.acquired{{background:var(--acq)}} .qualified.reacquired{{background:var(--re)}} strong,small{{display:block}} small{{color:var(--muted);font-size:.72rem;margin-top:.15rem}}
-.empty{{background:#fafbfc;min-width:4.5rem}}
-</style></head><body>
-<h1>{season} linebacker full-time-role proxy</h1>
-<p>Qualifying defensive snap share: {threshold:.0%}. Points use the NDAT Stage 3 IDP profile. Snap share is secondary evidence, not literal third-down participation.</p>
-<p><strong>Scoring note:</strong> “Stuff” points use NFLverse <code>def_tackles_for_loss</code> as the closest available proxy. This field is broader than a strictly run-specific stuff and may stack with sack points when NFLverse credits both.</p>
-<div class="table-wrap"><table><thead><tr><th>Team / player</th>{week_headers}</tr></thead><tbody>{''.join(groups)}</tbody></table></div>
-</body></html>"""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(document, encoding="utf-8")
-    return destination
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ndat.lb_roles")
     parser.add_argument("--season", type=int, required=True)
     parser.add_argument("--threshold", type=float, default=DEFAULT_FULL_TIME_SNAP_THRESHOLD)
-    parser.add_argument("--html", type=Path, help="HTML output path (defaults beside derived data)")
     return parser
 
 
@@ -385,8 +323,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except MissingSourceDataError as error:
         raise SystemExit(str(error)) from error
-    html_path = arguments.html or path.with_name("linebacker_roles.html")
-    render_html(frame, html_path)
     print(
         json.dumps(
             {
@@ -398,7 +334,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ).height,
                 "derived_data": str(path),
                 "duckdb_view": DERIVED_VIEW_NAME,
-                "visualization": str(html_path),
                 "unsupported_scoring_categories": unsupported,
             },
             indent=2,

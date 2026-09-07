@@ -105,8 +105,8 @@ configured external data root. SQL execution itself remains entirely local.
 
 ## Build the Stage 3 linebacker-role analysis
 
-Fetch the three required source partitions explicitly, then build the derived data
-and self-contained HTML visualization. Analysis never downloads missing inputs:
+Fetch the three required source partitions explicitly, then build the derived data.
+Analysis never downloads missing inputs:
 
 ```powershell
 uv run python -m ndat.data fetch snap_counts --season 2025
@@ -116,14 +116,31 @@ uv run python -m ndat.data fetch player_stats --season 2025
 # Default 85% threshold
 uv run python -m ndat.lb_roles --season 2025
 
-# Comparison at 90%; 90 is also accepted
-uv run python -m ndat.lb_roles --season 2025 --threshold 0.90
+# Comparison at 80%; 80 is also accepted
+uv run python -m ndat.lb_roles --season 2025 --threshold 0.80
 ```
 
-Each threshold produces an ignored Parquet partition and HTML file below
+Each threshold produces an ignored Parquet partition below
 `data/derived/lb_weekly_role/`. All linebacker weeks, including non-qualifying
 ones, remain in the Parquet data and the stable DuckDB view `lb_weekly_role`.
-The HTML view filters to qualifying cells and groups stable player rows by team.
+
+For the normal weekly workflow, one Python command can refresh the required source
+partitions, build the 85% and 80% analyses, and create the formatted Excel workbook:
+
+```powershell
+uv run python -m ndat.lb_workbook --season 2026 --refresh
+```
+
+The workbook is written to
+`data/derived/lb_weekly_role/season=2026/linebacker_roles_2026.xlsx`. Run the same
+command again each week. Ranking bands and comparison settings are command-line
+options; for example:
+
+```powershell
+uv run python -m ndat.lb_workbook --season 2026 --refresh `
+  --primary-threshold 0.85 --comparison-threshold 0.80 `
+  --top-rank 16 --second-rank 32 --recent-weeks 3
+```
 
 ## Provenance
 
