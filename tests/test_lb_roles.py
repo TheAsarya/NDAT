@@ -118,6 +118,8 @@ def test_alternate_threshold_accepts_fraction_or_percentage() -> None:
         ({"fumble_recovery_opp": 1}, 2),
         ({"def_fumbles_forced": 1}, 4),
         ({"def_safeties": 1}, 8),
+        ({"def_tackles_for_loss": 1}, 2),
+        ({"def_sacks": 1, "def_tackles_for_loss": 1}, 6),
         ({"def_pass_defended": 1}, 1),
     ],
 )
@@ -186,8 +188,11 @@ def test_stable_output_html_and_registered_duckdb_view(tmp_path: Path) -> None:
 
     assert first.equals(second)
     assert path.read_bytes() == first_bytes
-    assert unsupported == ["stuff"]
+    assert unsupported == []
     assert "Alex Example" in html_path.read_text(encoding="utf-8")
     assert "BAL" in html_path.read_text(encoding="utf-8")
+    assert "broader than a strictly run-specific stuff" in html_path.read_text(
+        encoding="utf-8"
+    )
     with duckdb.connect(str(config.catalogue_path), read_only=True) as connection:
         assert connection.execute("SELECT count(*) FROM lb_weekly_role").fetchone() == (3,)

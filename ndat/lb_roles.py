@@ -40,7 +40,9 @@ IDP_SCORING: Mapping[str, ScoringRule] = {
     "fumble_recovery": ScoringRule(2, ("fumble_recovery_opp",)),
     "forced_fumble": ScoringRule(4, ("def_fumbles_forced",)),
     "safety": ScoringRule(8, ("def_safeties",)),
-    "stuff": ScoringRule(2, ()),  # No dedicated weekly player-stat field.
+    # NFLverse has no run-specific "stuff" field. Stage 3 deliberately uses its
+    # broader credited tackle-for-loss statistic as the closest available proxy.
+    "stuff": ScoringRule(2, ("def_tackles_for_loss",)),
     "pass_defended": ScoringRule(1, ("def_pass_defended",)),
 }
 
@@ -358,6 +360,7 @@ thead th{{position:sticky;top:0;background:#eef2f6;z-index:2}} .player{{text-ali
 </style></head><body>
 <h1>{season} linebacker full-time-role proxy</h1>
 <p>Qualifying defensive snap share: {threshold:.0%}. Points use the NDAT Stage 3 IDP profile. Snap share is secondary evidence, not literal third-down participation.</p>
+<p><strong>Scoring note:</strong> “Stuff” points use NFLverse <code>def_tackles_for_loss</code> as the closest available proxy. This field is broader than a strictly run-specific stuff and may stack with sack points when NFLverse credits both.</p>
 <div class="table-wrap"><table><thead><tr><th>Team / player</th>{week_headers}</tr></thead><tbody>{''.join(groups)}</tbody></table></div>
 </body></html>"""
     destination.parent.mkdir(parents=True, exist_ok=True)

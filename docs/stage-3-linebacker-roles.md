@@ -40,14 +40,21 @@ The small structured definition lives in `ndat.lb_roles.IDP_SCORING`.
 | Fumble recovered | 2 | `fumble_recovery_opp` for the defensive snap-count player |
 | Fumble forced | 4 | `def_fumbles_forced` |
 | Safety | 8 | `def_safeties` |
-| Stuff | 2 | **unsupported: no dedicated field** |
+| Stuff | 2 | `def_tackles_for_loss` (explicit proxy) |
 | Pass defended | 1 | `def_pass_defended` |
 
 NFLverse defines total tackles as solo tackles plus tackles made with an assist.
 `def_tackle_assists` is not added again, avoiding double counting. The recovery
 field is NFLverse's opponent-fumble recovery field; it is joined only to the weekly
-defensive snap-count player. `def_tackles_for_loss` is not silently substituted for
-the unavailable “stuff” concept. Missing/null supported statistics score as zero.
+defensive snap-count player.
+
+NFLverse has no dedicated run-specific “stuff” field in weekly player stats. Stage 3
+therefore explicitly maps “stuff” to the closest available statistic,
+`def_tackles_for_loss`. That source field is broader than a strictly run-specific
+stuff and the two concepts should not be assumed identical. The two-point proxy may
+also stack with sack scoring when NFLverse credits both statistics. This limitation
+is repeated on the generated visualization rather than being hidden in code.
+Missing/null supported statistics score as zero.
 
 ## Build and query
 
@@ -95,10 +102,11 @@ The completed 2025 dataset contains 3,896 linebacker-game observations. There ar
 854 qualifying player-weeks at 85% and 729 at 90%, so the higher cutoff removes 125
 borderline observations. All 32 teams and 116 qualifying players appear at 85%.
 Full-season high-snap examples include Bobby Wagner, Zack Baun, Jack Campbell,
-Kaden Elliss, and Demario Davis. Mid-range rotational players remain in the derived
-data but are absent from qualifying visualization cells. Acquisition, loss, and
-reacquisition events appear in real data; for example, Akeem Davis-Gaither loses and
-later reacquires qualification.
+Kaden Elliss, and Demario Davis. Qualifying weekly point totals range from 0 to 25
+after applying the tackle-for-loss proxy. Mid-range rotational players remain in the
+derived data but are absent from qualifying visualization cells. Acquisition, loss,
+and reacquisition events appear in real data; for example, Akeem Davis-Gaither loses
+and later reacquires qualification.
 
 The 85% view retains meaningful near-full-time weeks while still excluding typical
 rotational deployment. The 90% comparison is materially stricter, but this finding
