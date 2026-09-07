@@ -26,3 +26,9 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# NDAT project-managed local data (directory intent is documented in data/README.md)
+/data/source/
+/data/derived/
+/data/manifest.json
+/data/*.duckdb*
