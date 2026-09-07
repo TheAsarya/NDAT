@@ -131,8 +131,8 @@ def _add_matrix_sheet(
         f"blue below {second_rank}. Player: purple regular-season rank. Team: teal "
         f"NFL weeks {recent_label} rank. Dark = top {top_rank}; light = "
         f"{top_rank + 1}–{second_rank}; ties share rank. Missing games = 0; "
-        "playoffs excluded from season/recent highlights. Stuff = TFL proxy. "
-        "Source: NFLverse via NDAT."
+        "playoffs excluded from season/recent highlights. Stuff (2 pts) is approximated "
+        "from credited zero/negative rushes; shared credit is split. Source: NFLverse via NDAT."
     )
     for column, header in enumerate(headers, start=1):
         worksheet.cell(3, column, header)

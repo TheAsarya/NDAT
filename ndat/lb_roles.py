@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
 
 import polars as pl
@@ -13,38 +12,37 @@ import polars as pl
 from ndat.catalogue import update_catalogue
 from ndat.config import DataConfig
 from ndat.manager import DataManager
+from ndat.scoring import PLAYER_STATS_MAPPINGS, load_profile
 
 
 DEFAULT_FULL_TIME_SNAP_THRESHOLD = 0.85
 LINEBACKER_POSITION = "LB"
 DERIVED_VIEW_NAME = "lb_weekly_role"
-SOURCE_DATASETS = ("snap_counts", "rosters", "player_stats")
+SOURCE_DATASETS = ("snap_counts", "rosters", "player_stats", "play_by_play")
 
-
-@dataclass(frozen=True)
-class ScoringRule:
-    points: float
-    source_fields: tuple[str, ...]
-
-
-# A deliberately small Stage 3 definition, not a general fantasy scoring engine.
-IDP_SCORING: Mapping[str, ScoringRule] = {
-    "sack": ScoringRule(4, ("def_sacks",)),
-    "total_tackle": ScoringRule(
-        1, ("def_tackles_solo", "def_tackles_with_assist")
-    ),
-    "blocked_kick": ScoringRule(
-        5, ("def_punt_blocks", "def_pat_blocks", "def_fg_blocks")
-    ),
-    "interception": ScoringRule(5, ("def_interceptions",)),
-    "fumble_recovery": ScoringRule(2, ("fumble_recovery_opp",)),
-    "forced_fumble": ScoringRule(4, ("def_fumbles_forced",)),
-    "safety": ScoringRule(8, ("def_safeties",)),
-    # NFLverse has no run-specific "stuff" field. Stage 3 deliberately uses its
-    # broader credited tackle-for-loss statistic as the closest available proxy.
-    "stuff": ScoringRule(2, ("def_tackles_for_loss",)),
-    "pass_defended": ScoringRule(1, ("def_pass_defended",)),
+STUFF_REQUIRED_FIELDS = {
+    "season",
+    "week",
+    "game_id",
+    "defteam",
+    "rush_attempt",
+    "yards_gained",
 }
+STUFF_TFL_CREDIT_FIELDS = (
+    "tackle_for_loss_1_player_id",
+    "tackle_for_loss_2_player_id",
+)
+STUFF_PRIMARY_TACKLE_FIELDS = (
+    "solo_tackle_1_player_id",
+    "solo_tackle_2_player_id",
+    "tackle_with_assist_1_player_id",
+    "tackle_with_assist_2_player_id",
+)
+
+
+IDP_PROFILE = load_profile("Stage3_IDP")
+# Kept as a public alias for callers that inspected the Stage 3 definition.
+IDP_SCORING = IDP_PROFILE.rules
 
 
 class MissingSourceDataError(RuntimeError):
@@ -61,12 +59,23 @@ def normalize_threshold(value: float) -> float:
     return threshold
 
 
-def scoring_support(columns: Sequence[str]) -> tuple[list[str], list[str]]:
+def scoring_support(
+    columns: Sequence[str], play_by_play_columns: Sequence[str] = ()
+) -> tuple[list[str], list[str]]:
     available = set(columns)
     supported: list[str] = []
     unsupported: list[str] = []
-    for name, rule in IDP_SCORING.items():
-        if rule.source_fields and all(field in available for field in rule.source_fields):
+    for name in IDP_SCORING:
+        if name == "stuff":
+            pbp = set(play_by_play_columns)
+            credit_fields = set(STUFF_TFL_CREDIT_FIELDS + STUFF_PRIMARY_TACKLE_FIELDS)
+            if STUFF_REQUIRED_FIELDS <= pbp and credit_fields & pbp:
+                supported.append(name)
+            else:
+                unsupported.append(name)
+            continue
+        mapping = PLAYER_STATS_MAPPINGS.get(name)
+        if mapping and all(field in available for field in mapping.fields):
             supported.append(name)
         else:
             unsupported.append(name)
@@ -83,12 +92,105 @@ def score_player_stats(frame: pl.DataFrame) -> pl.DataFrame:
     """Add explicit Stage 3 scoring components and ``fantasy_points``."""
     component_expressions: list[pl.Expr] = []
     for name, rule in IDP_SCORING.items():
-        raw = sum((_zero_filled(frame, field) for field in rule.source_fields), pl.lit(0.0))
-        component_expressions.append((raw * rule.points).alias(f"points_{name}"))
+        if name == "stuff" and "stuff" in frame.columns:
+            raw = _zero_filled(frame, "stuff")
+            component_expressions.append(
+                (raw * float(rule.points)).alias("points_stuff")
+            )
+            continue
+        mapping = PLAYER_STATS_MAPPINGS.get(name)
+        if mapping is None:
+            component_expressions.append(pl.lit(0.0).alias(f"points_{name}"))
+            continue
+        raw = sum((_zero_filled(frame, field) for field in mapping.fields), pl.lit(0.0))
+        component_expressions.append((raw * float(rule.points)).alias(f"points_{name}"))
     scored = frame.with_columns(component_expressions)
     point_columns = [f"points_{name}" for name in IDP_SCORING]
     return scored.with_columns(
         pl.sum_horizontal(point_columns).cast(pl.Float64).alias("fantasy_points")
+    )
+
+
+def derive_stuffs(play_by_play: pl.DataFrame) -> pl.DataFrame:
+    """Approximate ESPN stuffs from credited zero/negative rushing plays.
+
+    Negative runs prefer NFLverse tackle-for-loss credit. Zero-yard runs, and the
+    rare negative run without TFL credit, use primary solo/tackle-with-assist
+    credit. Shared primary credit is split so each play contributes one stuff.
+    """
+    missing = STUFF_REQUIRED_FIELDS - set(play_by_play.columns)
+    if missing:
+        raise ValueError(f"play_by_play is missing required fields: {sorted(missing)}")
+
+    predicate = (
+        (pl.col("rush_attempt").fill_null(0) == 1)
+        & (pl.col("yards_gained").is_not_null())
+        & (pl.col("yards_gained") <= 0)
+        & pl.col("defteam").is_not_null()
+    )
+    if "play_type" in play_by_play.columns:
+        predicate &= pl.col("play_type") == "run"
+    for flag in ("qb_kneel", "qb_spike", "play_deleted", "aborted_play"):
+        if flag in play_by_play.columns:
+            predicate &= pl.col(flag).fill_null(0) == 0
+
+    wanted = [
+        "season",
+        "week",
+        "game_id",
+        "defteam",
+        "yards_gained",
+        *(field for field in STUFF_TFL_CREDIT_FIELDS if field in play_by_play.columns),
+        *(
+            field
+            for field in STUFF_PRIMARY_TACKLE_FIELDS
+            if field in play_by_play.columns
+        ),
+    ]
+    rows: list[dict[str, object]] = []
+    for play in play_by_play.filter(predicate).select(wanted).to_dicts():
+        preferred = STUFF_TFL_CREDIT_FIELDS if float(play["yards_gained"]) < 0 else ()
+        defenders = [
+            play.get(field)
+            for field in preferred
+            if play.get(field) not in (None, "")
+        ]
+        if not defenders:
+            defenders = [
+                play.get(field)
+                for field in STUFF_PRIMARY_TACKLE_FIELDS
+                if play.get(field) not in (None, "")
+            ]
+        defenders = list(dict.fromkeys(defenders))
+        if not defenders:
+            continue
+        credit = 1.0 / len(defenders)
+        for player_id in defenders:
+            rows.append(
+                {
+                    "season": play["season"],
+                    "week": play["week"],
+                    "game_id": play["game_id"],
+                    "team": play["defteam"],
+                    "player_id": player_id,
+                    "stuff": credit,
+                }
+            )
+
+    schema = {
+        "season": pl.Int64,
+        "week": pl.Int64,
+        "game_id": pl.String,
+        "team": pl.String,
+        "player_id": pl.String,
+        "stuff": pl.Float64,
+    }
+    if not rows:
+        return pl.DataFrame(schema=schema)
+    return (
+        pl.DataFrame(rows, schema_overrides=schema)
+        .group_by("season", "week", "game_id", "team", "player_id")
+        .agg(pl.col("stuff").sum())
     )
 
 
@@ -118,12 +220,29 @@ def _identity_bridge(rosters: pl.DataFrame) -> pl.DataFrame:
             "first_name",
             "last_name",
             pl.col("position").alias("roster_position"),
+            (
+                pl.col("depth_chart_position")
+                if "depth_chart_position" in rosters.columns
+                else pl.lit(None, dtype=pl.String)
+            ).alias("depth_chart_position"),
+            (
+                pl.col("ngs_position")
+                if "ngs_position" in rosters.columns
+                else pl.lit(None, dtype=pl.String)
+            ).alias("ngs_position"),
         )
     )
 
 
-def _stats_for_join(player_stats: pl.DataFrame) -> pl.DataFrame:
+def _stats_for_join(
+    player_stats: pl.DataFrame, stuffs: pl.DataFrame | None = None
+) -> pl.DataFrame:
     keys = {"season", "week", "game_id", "team"}
+    if stuffs is not None:
+        join_keys = ["season", "week", "game_id", "team", "player_id"]
+        player_stats = player_stats.join(
+            stuffs, on=join_keys, how="full", coalesce=True
+        )
     scored = score_player_stats(player_stats)
     renamed = [
         pl.col(column) if column in keys else pl.col(column).alias(f"stats_{column}")
@@ -136,6 +255,7 @@ def derive_weekly_roles(
     snap_counts: pl.DataFrame,
     rosters: pl.DataFrame,
     player_stats: pl.DataFrame,
+    play_by_play: pl.DataFrame | None = None,
     *,
     threshold: float = DEFAULT_FULL_TIME_SNAP_THRESHOLD,
 ) -> pl.DataFrame:
@@ -165,7 +285,8 @@ def derive_weekly_roles(
         how="left",
     )
 
-    stats = _stats_for_join(player_stats)
+    stuffs = derive_stuffs(play_by_play) if play_by_play is not None else None
+    stats = _stats_for_join(player_stats, stuffs)
     joined = joined.join(
         stats,
         left_on=["season", "week", "game_id", "team", "gsis_id"],
@@ -198,6 +319,11 @@ def derive_weekly_roles(
         ).alias("last_name"),
         "team",
         pl.lit(LINEBACKER_POSITION).alias("position"),
+        pl.col("position").alias("raw_position"),
+        pl.when(pl.col("ngs_position") == "EDGE")
+        .then(pl.lit("EDGE"))
+        .otherwise(pl.lit(LINEBACKER_POSITION))
+        .alias("canonical_position"),
         pl.col("defense_snaps").alias("defensive_snaps"),
         pl.col("defense_pct").alias("defensive_snap_pct"),
         pl.lit(threshold).alias("role_threshold"),
@@ -293,9 +419,13 @@ def build_season(
     config: DataConfig | None = None,
 ) -> tuple[pl.DataFrame, Path, list[str]]:
     config = config or DataConfig.from_project()
-    snap_counts, rosters, player_stats = _source_frames(config, season)
+    snap_counts, rosters, player_stats, play_by_play = _source_frames(config, season)
     frame = derive_weekly_roles(
-        snap_counts, rosters, player_stats, threshold=threshold
+        snap_counts,
+        rosters,
+        player_stats,
+        play_by_play,
+        threshold=threshold,
     )
     destination = derived_path(config, season, threshold)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +433,7 @@ def build_season(
     frame.write_parquet(temporary)
     temporary.replace(destination)
     register_derived_view(config)
-    _, unsupported = scoring_support(player_stats.columns)
+    _, unsupported = scoring_support(player_stats.columns, play_by_play.columns)
     return frame, destination, unsupported
 
 

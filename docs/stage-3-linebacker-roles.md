@@ -21,6 +21,8 @@ The analysis uses only local Stage 2 partitions:
 - `player_stats`: uses canonical `player_id` (GSIS), plus season/week/game/team for
   the scoring join. A defender with no weekly stats row receives zero points rather
   than losing the snap-count observation.
+- `play_by_play`: supplies qualifying rushing outcomes and credited defender IDs for
+  the documented stuff approximation.
 
 `player_id` in derived output is the GSIS ID when the roster bridge supplies one.
 For an unmatched low-snap player it falls back explicitly to `pfr:<pfr_player_id>`;
@@ -29,7 +31,9 @@ to player-stats display name to the full PFR snap-count name.
 
 ## Stage 3 IDP scoring
 
-The small structured definition lives in `ndat.lb_roles.IDP_SCORING`.
+The shared named profile lives in `ndat/scoring_profiles/stage3_idp.toml` and is
+loaded as `Stage3_IDP`. `ndat.lb_roles.IDP_SCORING` remains an introspection alias,
+but scoring rules and NFLverse source mappings now come from the Stage 4 layer.
 
 | Category | Points | NFLverse weekly player-stat field |
 |---|---:|---|
@@ -40,7 +44,7 @@ The small structured definition lives in `ndat.lb_roles.IDP_SCORING`.
 | Fumble recovered | 2 | `fumble_recovery_opp` for the defensive snap-count player |
 | Fumble forced | 4 | `def_fumbles_forced` |
 | Safety | 8 | `def_safeties` |
-| Stuff | 2 | `def_tackles_for_loss` (explicit proxy) |
+| Stuff | 2 | Derived approximation from `play_by_play` |
 | Pass defended | 1 | `def_pass_defended` |
 
 NFLverse defines total tackles as solo tackles plus tackles made with an assist.
@@ -48,13 +52,22 @@ NFLverse defines total tackles as solo tackles plus tackles made with an assist.
 field is NFLverse's opponent-fumble recovery field; it is joined only to the weekly
 defensive snap-count player.
 
-NFLverse has no dedicated run-specific “stuff” field in weekly player stats. Stage 3
-therefore explicitly maps “stuff” to the closest available statistic,
-`def_tackles_for_loss`. That source field is broader than a strictly run-specific
-stuff and the two concepts should not be assumed identical. The two-point proxy may
-also stack with sack scoring when NFLverse credits both statistics. This limitation
-is repeated on the generated visualization rather than being hidden in code.
-Missing/null supported statistics score as zero.
+NFLverse has no direct ESPN “stuff” field, so Stage 3 uses a documented play-by-play
+approximation rather than treating `def_tackles_for_loss` as the same statistic. A
+valid stuff candidate is a recorded rushing attempt gaining zero or fewer yards,
+excluding kneels, spikes, deleted plays, and aborted plays. Negative-yard plays use
+the credited tackle-for-loss defender when available; zero-yard plays, plus the rare
+negative play without TFL credit, use NFLverse's primary solo/tackle-with-assist
+credit. Separate `assist_tackle_*` fields are not used because they represent assist
+credit rather than the primary tackle attribution used by this approximation.
+
+Each qualifying play contributes at most one stuff. If two primary defenders share
+the selected credit, each receives 0.5; a candidate with no selected credited
+defender is omitted rather than guessed. On the local 2025 data this rule found
+credit for 1,890 of 2,404 candidate plays: 1,888 had one selected defender, two had
+shared credit, and 514 had no defensible primary credit. This will not reproduce
+ESPN exactly, but it retains a useful Stuff component while making the difference
+auditable. Missing/null fields for other supported statistics still score as zero.
 
 ## Build and query
 
@@ -65,6 +78,7 @@ is always explicit:
 uv run python -m ndat.data fetch snap_counts --season 2025
 uv run python -m ndat.data fetch rosters --season 2025
 uv run python -m ndat.data fetch player_stats --season 2025
+uv run python -m ndat.data fetch play_by_play --season 2025
 ```
 
 Build individual 85% and 80% data partitions:
@@ -74,7 +88,7 @@ uv run python -m ndat.lb_roles --season 2025
 uv run python -m ndat.lb_roles --season 2025 --threshold 0.80
 ```
 
-The normal weekly command refreshes all three inputs, builds both partitions, and
+The normal weekly command refreshes all four inputs, builds both partitions, and
 creates the Excel workbook:
 
 ```powershell
@@ -97,6 +111,9 @@ data/derived/lb_weekly_role/season=<YYYY>/threshold=<fraction>/data.parquet
 `data/ndat.duckdb` exposes their union as `lb_weekly_role`; filter
 `role_threshold` when more than one cutoff exists. Every LB snap-count row remains
 available. `qualifies_full_time` is independent from visualization filtering.
+The raw `LB` selection is unchanged for compatibility. Derived rows additionally
+preserve `raw_position` and expose `canonical_position`; explicit roster NGS EDGE
+evidence is normalized to `EDGE`, while uncertain LB/OLB cases remain `LB`.
 
 Longitudinal columns include `first_qualifying_week`, `qualifying_weeks`, current
 and longest qualifying streak, `lost_after_qualifying`, `reacquired`, and a compact
@@ -116,8 +133,7 @@ The completed 2025 dataset contains 3,896 linebacker-game observations. There ar
 854 qualifying player-weeks at 85% and 972 at 80%. All 32 teams and 116 qualifying
 players appear at 85%.
 Full-season high-snap examples include Bobby Wagner, Zack Baun, Jack Campbell,
-Kaden Elliss, and Demario Davis. Qualifying weekly point totals range from 0 to 25
-after applying the tackle-for-loss proxy. Mid-range rotational players remain in the
+Kaden Elliss, and Demario Davis. Mid-range rotational players remain in the
 derived data but are absent from qualifying visualization cells. Acquisition, loss,
 and reacquisition events appear in real data; for example, Akeem Davis-Gaither loses
 and later reacquires qualification.

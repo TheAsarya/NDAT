@@ -1,0 +1,57 @@
+schema_version = 1
+name = "Stage3_IDP"
+description = "Stage 3 linebacker workbook IDP scoring with a documented play-by-play stuff approximation"
+
+[rules.sack]
+type = "event"
+points = 4
+category = "idp"
+entity = "player"
+
+[rules.total_tackle]
+type = "event"
+points = 1
+category = "idp"
+entity = "player"
+
+[rules.blocked_kick]
+type = "event"
+points = 5
+category = "idp"
+entity = "player"
+
+[rules.interception]
+type = "event"
+points = 5
+category = "idp"
+entity = "player"
+
+[rules.fumble_recovery]
+type = "event"
+points = 2
+category = "idp"
+entity = "player"
+
+[rules.forced_fumble]
+type = "event"
+points = 4
+category = "idp"
+entity = "player"
+
+[rules.safety]
+type = "event"
+points = 8
+category = "idp"
+entity = "player"
+
+[rules.stuff]
+type = "event"
+points = 2
+category = "idp"
+entity = "player"
+
+[rules.pass_defended]
+type = "event"
+points = 1
+category = "idp"
+entity = "player"

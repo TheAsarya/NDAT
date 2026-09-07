@@ -5,6 +5,13 @@ weekly linebacker defensive snap share as a configurable proxy for a full-time
 role. See [`docs/stage-3-linebacker-roles.md`](docs/stage-3-linebacker-roles.md)
 for the definition, scoring details, commands, and limitations.
 
+Reusable named fantasy scoring and the first SQL-first analytical primitives are
+documented in [`docs/stage-4-scoring-analysis.md`](docs/stage-4-scoring-analysis.md).
+Stage 4 includes the complete non-PPR `LoB` profile, the shared `Stage3_IDP`
+profile, position normalization, positional rank curves, top-N persistence, and
+multi-predicate historical player-game thresholds. It does not include a saved
+analysis catalogue or UI.
+
 ## Architecture and ownership
 
 ```text
@@ -102,16 +109,20 @@ with duckdb.connect("data/ndat.duckdb", read_only=True) as connection:
 
 DuckDB views contain filesystem paths, so run the `catalogue` command after moving a
 configured external data root. SQL execution itself remains entirely local.
+When `player_stats` has its normal NFLverse schema, the catalogue also exposes
+`player_game`, preserving `raw_position` and adding `canonical_position` for shared
+scoring and analysis.
 
 ## Build the Stage 3 linebacker-role analysis
 
-Fetch the three required source partitions explicitly, then build the derived data.
+Fetch the four required source partitions explicitly, then build the derived data.
 Analysis never downloads missing inputs:
 
 ```powershell
 uv run python -m ndat.data fetch snap_counts --season 2025
 uv run python -m ndat.data fetch rosters --season 2025
 uv run python -m ndat.data fetch player_stats --season 2025
+uv run python -m ndat.data fetch play_by_play --season 2025
 
 # Default 85% threshold
 uv run python -m ndat.lb_roles --season 2025

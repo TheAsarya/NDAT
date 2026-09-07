@@ -1,0 +1,219 @@
+schema_version = 1
+name = "LoB"
+description = "League of Brohirrim non-PPR dynasty scoring"
+
+[rules.passing_yards]
+type = "linear"
+points_per_unit = 0.04
+category = "passing"
+entity = "player"
+
+[rules.passing_td]
+type = "event"
+points = 4
+category = "passing"
+entity = "player"
+
+[rules.passing_2pt_conversion]
+type = "event"
+points = 2
+category = "passing"
+entity = "player"
+
+[rules.passing_interception]
+type = "event"
+points = -2
+category = "passing"
+entity = "player"
+
+[rules.rushing_yards]
+type = "linear"
+points_per_unit = 0.1
+category = "rushing"
+entity = "player"
+
+[rules.rushing_td]
+type = "event"
+points = 6
+category = "rushing"
+entity = "player"
+
+[rules.rushing_2pt_conversion]
+type = "event"
+points = 2
+category = "rushing"
+entity = "player"
+
+[rules.reception]
+type = "event"
+points = 0
+category = "receiving"
+entity = "player"
+
+[rules.receiving_yards]
+type = "linear"
+points_per_unit = 0.1
+category = "receiving"
+entity = "player"
+
+[rules.receiving_td]
+type = "event"
+points = 6
+category = "receiving"
+entity = "player"
+
+[rules.receiving_2pt_conversion]
+type = "event"
+points = 2
+category = "receiving"
+entity = "player"
+
+[rules.field_goal_distance]
+type = "buckets"
+category = "kicking"
+entity = "player"
+buckets = [
+  { min = 0, max = 19, points = 3 },
+  { min = 20, max = 29, points = 3 },
+  { min = 30, max = 39, points = 3 },
+  { min = 40, max = 49, points = 4 },
+  { min = 50, points = 5 },
+]
+
+[rules.pat_made]
+type = "event"
+points = 1
+category = "kicking"
+entity = "player"
+
+[rules.field_goal_missed]
+type = "event"
+points = -1
+category = "kicking"
+entity = "player"
+
+[rules.pat_missed]
+type = "event"
+points = -1
+category = "kicking"
+entity = "player"
+
+[rules.defensive_td]
+type = "event"
+points = 6
+category = "team_defense"
+entity = "team_defense"
+
+[rules.points_allowed]
+type = "buckets"
+category = "team_defense"
+entity = "team_defense"
+buckets = [
+  { min = 0, max = 0, points = 5 },
+  { min = 1, max = 6, points = 4 },
+  { min = 7, max = 13, points = 3 },
+  { min = 14, max = 20, points = 1 },
+  { min = 21, max = 27, points = 0 },
+  { min = 28, max = 34, points = -1 },
+  { min = 35, points = -4 },
+]
+
+[rules.yards_allowed]
+type = "buckets"
+category = "team_defense"
+entity = "team_defense"
+buckets = [
+  { min = 0, max = 99, points = 5 },
+  { min = 100, max = 199, points = 3 },
+  { min = 200, max = 299, points = 2 },
+  { min = 300, max = 349, points = 0 },
+  { min = 350, max = 399, points = -1 },
+  { min = 400, max = 449, points = -3 },
+  { min = 450, max = 499, points = -5 },
+  { min = 500, max = 549, points = -6 },
+  { min = 550, points = -7 },
+]
+
+[rules.defensive_sack]
+type = "event"
+points = 1
+category = "team_defense"
+entity = "team_defense"
+
+[rules.defensive_interception]
+type = "event"
+points = 2
+category = "team_defense"
+entity = "team_defense"
+
+[rules.defensive_fumble_recovery]
+type = "event"
+points = 1
+category = "team_defense"
+entity = "team_defense"
+
+[rules.defensive_safety]
+type = "event"
+points = 2
+category = "team_defense"
+entity = "team_defense"
+
+[rules.defensive_forced_fumble]
+type = "event"
+points = 1
+category = "team_defense"
+entity = "team_defense"
+
+[rules.blocked_kick]
+type = "event"
+points = 2
+category = "team_defense"
+entity = "team_defense"
+
+[rules.special_teams_defense_td]
+type = "event"
+points = 6
+category = "special_teams_defense"
+entity = "team_defense"
+
+[rules.special_teams_defense_forced_fumble]
+type = "event"
+points = 1
+category = "special_teams_defense"
+entity = "team_defense"
+
+[rules.special_teams_defense_fumble_recovery]
+type = "event"
+points = 1
+category = "special_teams_defense"
+entity = "team_defense"
+
+[rules.special_teams_player_td]
+type = "event"
+points = 6
+category = "special_teams_player"
+entity = "player"
+
+[rules.special_teams_player_forced_fumble]
+type = "event"
+points = 1
+category = "special_teams_player"
+entity = "player"
+
+[rules.special_teams_player_fumble_recovery]
+type = "event"
+points = 1
+category = "special_teams_player"
+entity = "player"
+
+[rules.fumble_lost]
+type = "event"
+points = -2
+category = "miscellaneous"
+entity = "player"
+
+[rules.fumble_recovery_td]
+type = "event"
+points = 6
+category = "miscellaneous"
+entity = "player"

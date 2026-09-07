@@ -12,6 +12,7 @@ from ndat.lb_roles import (
     IDP_SCORING,
     add_longitudinal_history,
     build_season,
+    derive_stuffs,
     derive_weekly_roles,
     normalize_threshold,
     score_player_stats,
@@ -119,8 +120,6 @@ def test_alternate_threshold_accepts_fraction_or_percentage() -> None:
         ({"fumble_recovery_opp": 1}, 2),
         ({"def_fumbles_forced": 1}, 4),
         ({"def_safeties": 1}, 8),
-        ({"def_tackles_for_loss": 1}, 2),
-        ({"def_sacks": 1, "def_tackles_for_loss": 1}, 6),
         ({"def_pass_defended": 1}, 1),
     ],
 )
@@ -143,6 +142,48 @@ def test_total_tackles_do_not_double_count_assist_credit_and_nulls_are_zero() ->
         )
     )
     assert scored["fantasy_points"][0] == 7
+
+
+def test_tackle_for_loss_is_not_silently_scored_as_a_stuff() -> None:
+    row = pl.DataFrame([stats_row(def_tackles_for_loss=1)])
+    scored = score_player_stats(row)
+
+    assert scored["points_stuff"][0] == 0
+    assert scored["fantasy_points"][0] == 0
+
+
+def test_play_by_play_stuff_approximation_prefers_tfl_and_splits_shared_credit() -> None:
+    plays = pl.DataFrame(
+        [
+            {
+                "season": 2025, "week": 1, "game_id": "g1", "defteam": "BAL",
+                "play_type": "run", "rush_attempt": 1, "yards_gained": -2,
+                "qb_kneel": 0, "qb_spike": 0, "play_deleted": 0, "aborted_play": 0,
+                "tackle_for_loss_1_player_id": "p1", "tackle_for_loss_2_player_id": None,
+                "solo_tackle_1_player_id": "wrong", "solo_tackle_2_player_id": None,
+                "tackle_with_assist_1_player_id": None, "tackle_with_assist_2_player_id": None,
+            },
+            {
+                "season": 2025, "week": 1, "game_id": "g1", "defteam": "BAL",
+                "play_type": "run", "rush_attempt": 1, "yards_gained": 0,
+                "qb_kneel": 0, "qb_spike": 0, "play_deleted": 0, "aborted_play": 0,
+                "tackle_for_loss_1_player_id": None, "tackle_for_loss_2_player_id": None,
+                "solo_tackle_1_player_id": "p1", "solo_tackle_2_player_id": None,
+                "tackle_with_assist_1_player_id": "p2", "tackle_with_assist_2_player_id": None,
+            },
+        ]
+    )
+
+    result = derive_stuffs(plays).sort("player_id")
+
+    assert result["player_id"].to_list() == ["p1", "p2"]
+    assert result["stuff"].to_list() == pytest.approx([1.5, 0.5])
+    assert result["stuff"].sum() == pytest.approx(2.0)
+
+
+def test_canonical_stuff_column_scores_two_points() -> None:
+    scored = score_player_stats(pl.DataFrame([stats_row(stuff=1.5)]))
+    assert scored["points_stuff"][0] == 3
 
 
 def test_longitudinal_acquisition_retention_loss_and_reacquisition() -> None:
@@ -175,11 +216,21 @@ def test_stable_output_and_registered_duckdb_view(tmp_path: Path) -> None:
     config = DataConfig.from_project(project_root=tmp_path, data_root=tmp_path / "data")
     manager_paths = {
         name: config.source_root / name / "season=2025" / "data.parquet"
-        for name in ("snap_counts", "rosters", "player_stats")
+        for name in ("snap_counts", "rosters", "player_stats", "play_by_play")
     }
     for path in manager_paths.values():
         path.parent.mkdir(parents=True, exist_ok=True)
-    for (name, path), frame in zip(manager_paths.items(), source_frames(), strict=True):
+    snap, roster, stats = source_frames()
+    pbp = pl.DataFrame(
+        {
+            "season": [2025], "week": [2], "game_id": ["2025_02_BAL_BUF"],
+            "defteam": ["BAL"], "play_type": ["run"], "rush_attempt": [1],
+            "yards_gained": [0], "solo_tackle_1_player_id": ["00-0000001"],
+        }
+    )
+    for (name, path), frame in zip(
+        manager_paths.items(), (snap, roster, stats, pbp), strict=True
+    ):
         frame.write_parquet(path)
 
     first, path, unsupported = build_season(2025, config=config)
@@ -189,6 +240,7 @@ def test_stable_output_and_registered_duckdb_view(tmp_path: Path) -> None:
     assert first.equals(second)
     assert path.read_bytes() == first_bytes
     assert unsupported == []
+    assert first.filter(pl.col("week") == 2)["fantasy_points"][0] == 4
     with duckdb.connect(str(config.catalogue_path), read_only=True) as connection:
         assert connection.execute("SELECT count(*) FROM lb_weekly_role").fetchone() == (3,)
 

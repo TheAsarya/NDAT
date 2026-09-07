@@ -8,6 +8,7 @@ import duckdb
 
 from ndat.config import DataConfig
 from ndat.datasets import DATASETS
+from ndat.positions import position_sql
 
 
 def _sql_string(path: Path) -> str:
@@ -33,6 +34,20 @@ def update_catalogue(config: DataConfig) -> list[str]:
                 "union_by_name = true, hive_partitioning = false)"
             )
             available.append(definition.view_name)
+        connection.execute('DROP VIEW IF EXISTS "player_game"')
+        player_columns = (
+            {row[0] for row in connection.execute('DESCRIBE "player_stats"').fetchall()}
+            if "player_stats" in available
+            else set()
+        )
+        if "position" in player_columns:
+            connection.execute(
+                'CREATE VIEW "player_game" AS '
+                "SELECT *, position AS raw_position, "
+                f"{position_sql('position')} AS canonical_position "
+                'FROM "player_stats"'
+            )
+            available.append("player_game")
         derived_name = "lb_weekly_role"
         derived_files = list(
             (config.derived_root / derived_name).glob(
