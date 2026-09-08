@@ -1,0 +1,31 @@
+id = "historical.receiving-threshold"
+title = "Receiving threshold frequency"
+description = "Qualifying regular-season player-games with player-game frequency context. This is not a player-specific probability or a percentage of NFL games."
+execution = "sql"
+source = "receiving_threshold.sql"
+tags = ["historical", "receiving", "threshold", "player-game"]
+
+[parameters.position]
+type = "string"
+description = "Canonical position, such as TE or WR"
+default = "TE"
+
+[parameters.yards]
+type = "float"
+description = "Minimum receiving yards"
+default = 100.0
+
+[parameters.touchdowns]
+type = "float"
+description = "Minimum receiving touchdowns"
+default = 2.0
+
+[parameters.start_season]
+type = "integer"
+description = "First season, inclusive"
+default = 2020
+
+[parameters.end_season]
+type = "integer"
+description = "Last season, inclusive"
+default = 2025

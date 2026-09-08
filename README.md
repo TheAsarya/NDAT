@@ -12,8 +12,22 @@ profile, position normalization, positional rank curves, top-N persistence, and
 multi-predicate historical player-game thresholds. It does not include a saved
 analysis catalogue or UI.
 
-The authoritative development-stage roadmap, including the currently next planned
-stage, is [`docs/development-stages.md`](docs/development-stages.md).
+The saved and parameterised analysis library is documented in
+[`docs/stage-5-analysis-library.md`](docs/stage-5-analysis-library.md). It makes
+tracked SQL and the Stage 4 Python primitives discoverable through one terminal
+interface:
+
+```powershell
+uv run python -m ndat.query list
+uv run python -m ndat.query show historical.receiving-threshold
+uv run python -m ndat.query run historical.receiving-threshold
+```
+
+Any `.sql` file can also run directly without library metadata. An adjacent TOML
+sidecar is needed only when promoting SQL into the named, typed library.
+
+The authoritative development-stage roadmap is
+[`docs/development-stages.md`](docs/development-stages.md).
 
 ## Architecture and ownership
 
