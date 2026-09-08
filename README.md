@@ -12,6 +12,9 @@ profile, position normalization, positional rank curves, top-N persistence, and
 multi-predicate historical player-game thresholds. It does not include a saved
 analysis catalogue or UI.
 
+The authoritative development-stage roadmap, including the currently next planned
+stage, is [`docs/development-stages.md`](docs/development-stages.md).
+
 ## Architecture and ownership
 
 ```text
