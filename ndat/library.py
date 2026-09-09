@@ -18,6 +18,7 @@ from ndat.analysis import (
     top_n_persistence,
 )
 from ndat.config import DataConfig
+from ndat.parlay import PARLAY_WR1_SQL, historical_wr1_parlay_envelope
 
 
 _MISSING = object()
@@ -101,6 +102,22 @@ def _python_definitions() -> tuple[AnalysisDefinition, ...]:
                 ParameterDefinition("end_season", "integer", "Last season"),
             ),
             callable=historical_threshold_events,
+        ),
+        AnalysisDefinition(
+            "historical.parlay-wr1-envelope",
+            "Historical WR1 parlay-rate envelope",
+            "Retrieve weekly four-receiver hit rates in DuckDB, then rank rates and calculate distribution percentiles in Python.",
+            ("historical", "parlay", "wide-receiver", "percentile"),
+            "python",
+            (
+                ParameterDefinition("start_season", "integer", "First season", 2021),
+                ParameterDefinition("end_season", "integer", "Last season", 2025),
+                ParameterDefinition("cohort_size", "integer", "Top receivers selected per season", 12),
+                ParameterDefinition("standard_yards", "float", "Yards required for three legs", 60.0),
+                ParameterDefinition("reduced_yards", "float", "Yards required for the designated reduced leg", 40.0),
+            ),
+            source=PARLAY_WR1_SQL,
+            callable=historical_wr1_parlay_envelope,
         ),
     )
 

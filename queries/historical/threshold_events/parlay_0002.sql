@@ -1,16 +1,7 @@
-/*
-puka, jjeff, ceedee 60+, mcconkey 40+
-Define the historical WR1 cohort as:
-the top 12 WRs by regular-season receiving yards in each season.
-
-Then, for each regular-season week, take the top-12 receivers who actually recorded a player-game and examine every possible four-player combination. For each quartet, designate one receiver as the 40+ leg and the other three as 60+ legs.
-That lets us estimate an empirical envelope rather than pretending there is one exact probability:
-- overall historical hit rate;
-- season-by-season hit rate;
-- week-to-week range;
-- median week;
-- perhaps 25th/75th percentiles.
-*/
+/* Weekly retrieval for the registered historical.parlay-wr1-envelope analysis.
+   DuckDB selects each season's WR cohort, enumerates four-player weekly
+   combinations, designates each player once as the reduced-yardage leg, and
+   returns weekly hit rates. Python performs sorting and percentile statistics. */
 WITH season_wr AS (
     SELECT
         season,
@@ -18,7 +9,7 @@ WITH season_wr AS (
         max(player_display_name) AS player_name,
         sum(receiving_yards) AS season_receiving_yards
     FROM player_game
-    WHERE season BETWEEN 2021 AND 2025
+    WHERE season BETWEEN $start_season AND $end_season
       AND season_type = 'REG'
       AND canonical_position = 'WR'
     GROUP BY season, player_id
@@ -34,7 +25,7 @@ ranked_wr AS (
     FROM season_wr
 ),
 
-top12 AS (
+cohort AS (
     SELECT
         season,
         player_id,
@@ -42,7 +33,7 @@ top12 AS (
         season_receiving_yards,
         season_wr_rank
     FROM ranked_wr
-    WHERE season_wr_rank <= 12
+    WHERE season_wr_rank <= $cohort_size
 ),
 
 weekly AS (
@@ -55,10 +46,10 @@ weekly AS (
         pg.team,
         pg.receiving_yards
     FROM player_game AS pg
-    INNER JOIN top12 AS t
+    INNER JOIN cohort AS t
         ON pg.season = t.season
        AND pg.player_id = t.player_id
-    WHERE pg.season BETWEEN 2021 AND 2025
+    WHERE pg.season BETWEEN $start_season AND $end_season
       AND pg.season_type = 'REG'
 ),
 
@@ -96,10 +87,10 @@ designated AS (
     SELECT
         season,
         week,
-        p1_yards >= 40
-            AND p2_yards >= 60
-            AND p3_yards >= 60
-            AND p4_yards >= 60 AS hit
+        p1_yards >= $reduced_yards
+            AND p2_yards >= $standard_yards
+            AND p3_yards >= $standard_yards
+            AND p4_yards >= $standard_yards AS hit
     FROM quartets
 
     UNION ALL
@@ -107,10 +98,10 @@ designated AS (
     SELECT
         season,
         week,
-        p1_yards >= 60
-            AND p2_yards >= 40
-            AND p3_yards >= 60
-            AND p4_yards >= 60
+        p1_yards >= $standard_yards
+            AND p2_yards >= $reduced_yards
+            AND p3_yards >= $standard_yards
+            AND p4_yards >= $standard_yards
     FROM quartets
 
     UNION ALL
@@ -118,10 +109,10 @@ designated AS (
     SELECT
         season,
         week,
-        p1_yards >= 60
-            AND p2_yards >= 60
-            AND p3_yards >= 40
-            AND p4_yards >= 60
+        p1_yards >= $standard_yards
+            AND p2_yards >= $standard_yards
+            AND p3_yards >= $reduced_yards
+            AND p4_yards >= $standard_yards
     FROM quartets
 
     UNION ALL
@@ -129,10 +120,10 @@ designated AS (
     SELECT
         season,
         week,
-        p1_yards >= 60
-            AND p2_yards >= 60
-            AND p3_yards >= 60
-            AND p4_yards >= 40
+        p1_yards >= $standard_yards
+            AND p2_yards >= $standard_yards
+            AND p3_yards >= $standard_yards
+            AND p4_yards >= $reduced_yards
     FROM quartets
 ),
 
@@ -152,6 +143,6 @@ SELECT
     week,
     combinations,
     hits,
-    round(100.0 * hit_rate, 2) AS hit_pct
+    hit_rate
 FROM weekly_rates
 ORDER BY season, week

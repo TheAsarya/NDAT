@@ -4,6 +4,7 @@ from io import StringIO
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pytest
 
 from ndat.config import DataConfig
@@ -14,6 +15,7 @@ from ndat.library import (
     parse_parameters,
     run_analysis,
 )
+from ndat.parlay import historical_wr1_parlay_envelope
 from ndat.query import main
 from ndat.scoring import PLAYER_STATS_MAPPINGS
 
@@ -57,6 +59,50 @@ def fixture_connection(path: Path | None = None) -> duckdb.DuckDBPyConnection:
             f"VALUES ({', '.join('?' for _ in names)})",
             list(values.values()),
         )
+    return connection
+
+
+def parlay_fixture_connection(path: Path | None = None) -> duckdb.DuckDBPyConnection:
+    connection = duckdb.connect(str(path) if path else ":memory:")
+    connection.execute(
+        """
+        CREATE TABLE player_game (
+            season INTEGER,
+            week INTEGER,
+            game_id VARCHAR,
+            player_id VARCHAR,
+            player_display_name VARCHAR,
+            team VARCHAR,
+            receiving_yards DOUBLE,
+            season_type VARCHAR,
+            canonical_position VARCHAR
+        )
+        """
+    )
+    rows = []
+    weekly_yards = {
+        1: (70, 70, 70, 50),
+        2: (70, 70, 70, 70),
+        3: (10, 10, 10, 10),
+    }
+    for week, yards in weekly_yards.items():
+        for index, receiving_yards in enumerate(yards, start=1):
+            rows.append(
+                (
+                    2021,
+                    week,
+                    f"g{week}-{index}",
+                    f"wr{index}",
+                    f"Receiver {index}",
+                    f"T{index}",
+                    receiving_yards,
+                    "REG",
+                    "WR",
+                )
+            )
+    connection.executemany(
+        "INSERT INTO player_game VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
+    )
     return connection
 
 
@@ -193,6 +239,85 @@ def test_registered_python_analysis_and_multitable_persistence() -> None:
     )
     assert set(persistence.tables) == {"summary", "players"}
     assert persistence.tables["summary"]["repeat_players"].to_list() == [1]
+
+
+def test_registered_parlay_analysis_uses_sql_then_python_percentiles() -> None:
+    definition = discover(DataConfig.from_project())[
+        "historical.parlay-wr1-envelope"
+    ]
+    assert definition.execution == "python"
+    assert definition.source and definition.source.name == "parlay_0002.sql"
+
+    result = run_analysis(
+        definition,
+        {
+            "start_season": "2021",
+            "end_season": "2021",
+            "cohort_size": "4",
+            "standard_yards": "60",
+            "reduced_yards": "40",
+        },
+        parlay_fixture_connection(),
+    )
+
+    assert set(result.tables) == {"summary", "weekly"}
+    assert "$standard_yards" in result.sql
+    assert result.tables["weekly"]["hit_rate"].to_list() == [1.0, 0.25, 0.0]
+    assert result.tables["weekly"]["rate_rank"].to_list() == [1, 2, 3]
+    assert result.tables["summary"].row(0, named=True) == {
+        "weeks_analysed": 3,
+        "minimum_rate": 0.0,
+        "p25": 0.125,
+        "median": 0.25,
+        "p75": 0.625,
+        "maximum_rate": 1.0,
+    }
+
+
+def test_parlay_analysis_validates_parameters_and_handles_no_weeks() -> None:
+    with pytest.raises(ValueError, match="cohort_size must be at least 4"):
+        historical_wr1_parlay_envelope(
+            parlay_fixture_connection(), cohort_size=3
+        )
+    result = historical_wr1_parlay_envelope(
+        parlay_fixture_connection(), start_season=2022, end_season=2022
+    )
+    assert result.weekly.is_empty()
+    assert result.weekly.schema == {
+        "rate_rank": pl.UInt32,
+        "season": pl.Int64,
+        "week": pl.Int64,
+        "combinations": pl.Int64,
+        "hits": pl.Int64,
+        "hit_rate": pl.Float64,
+        "hit_pct": pl.Float64,
+    }
+    assert result.summary["weeks_analysed"].to_list() == [0]
+    assert result.summary["median"].to_list() == [None]
+
+
+def test_cli_runs_registered_parlay_analysis(tmp_path: Path) -> None:
+    config = config_for(tmp_path, project_root=PROJECT_ROOT)
+    config.catalogue_path.parent.mkdir(parents=True)
+    parlay_fixture_connection(config.catalogue_path).close()
+    output = StringIO()
+
+    assert main(
+        [
+            "run",
+            "historical.parlay-wr1-envelope",
+            "--param",
+            "start_season=2021",
+            "--param",
+            "end_season=2021",
+            "--param",
+            "cohort_size=4",
+        ],
+        config=config,
+        output=output,
+    ) == 0
+    assert "[summary]" in output.getvalue()
+    assert "[weekly]" in output.getvalue()
 
 
 def test_cli_list_show_run_empty_and_missing(tmp_path: Path) -> None:

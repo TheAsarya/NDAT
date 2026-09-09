@@ -25,7 +25,8 @@ and running an analysis never refreshes data.
 An `AnalysisExecution` records the definition, resolved parameter values, named
 Polars tables, SQL text when available, and Stage 4 unsupported scoring components.
 Named tables preserve heterogeneous results: ordinary analyses expose `rows`, while
-`persistence.top-n` exposes both `summary` and `players`.
+`persistence.top-n` exposes `summary` and `players`, and the registered parlay-rate
+analysis exposes `summary` and `weekly`.
 
 ## SQL source and the promotion workflow
 
@@ -130,6 +131,13 @@ uv run python -m ndat.query run historical.threshold-events `
   --param 'predicates={"receiving_yards":120,"receiving_tds":2}' `
   --param start_season=2023 `
   --param end_season=2025
+
+uv run python -m ndat.query run historical.parlay-wr1-envelope `
+  --param start_season=2021 `
+  --param end_season=2025 `
+  --param cohort_size=12 `
+  --param standard_yards=60 `
+  --param reduced_yards=40
 ```
 
 ## Included analyses and result meaning
@@ -138,6 +146,7 @@ uv run python -m ndat.query run historical.threshold-events `
 |---|---|---|---|
 | `historical.receiving-threshold` | saved SQL | `rows` | Qualifying player-games plus overall and per-season player-game frequency context |
 | `historical.threshold-events` | Python | `rows` | Existing generic Stage 4 threshold primitive |
+| `historical.parlay-wr1-envelope` | Python | `summary`, `weekly` | DuckDB weekly quartet retrieval followed by Python rate ranking and percentiles |
 | `fantasy.positional-rank-curve` | Python | `rows` | Existing Stage 4 positional rank curve |
 | `persistence.top-n` | Python | `summary`, `players` | Existing Stage 4 top-N persistence primitive |
 
@@ -146,6 +155,39 @@ percentage occurrence, 1-in-N player-game frequency, and season counts alongside
 the underlying qualifying rows. Its denominator is regular-season player-games at
 the selected canonical position. It is not the percentage of NFL games containing
 a qualifying player and is not a true player-specific probability.
+
+### SQL retrieval plus Python statistics
+
+`historical.parlay-wr1-envelope` is the concrete Stage 5 example of a saved Python
+analysis whose work naturally crosses the SQL/Python boundary:
+
+```text
+parlay_0002.sql
+    -> weekly rows from DuckDB
+    -> registered Python callable
+    -> rate ordering and percentile interpolation
+    -> summary + weekly tables
+```
+
+The SQL source selects each season's top receiving-yardage WR cohort, enumerates
+every four-player combination among cohort members with a player-game in the same
+regular-season week, designates each receiver once as the reduced-yardage leg, and
+returns combinations, hits, and a hit rate for each season/week. The parameters are
+bound values; Python is not embedded in the SQL file or a TOML sidecar.
+
+The Python step sorts the weekly rates from highest to lowest, adds `rate_rank` and
+`hit_pct`, and uses local linear interpolation to produce `weeks_analysed`,
+`minimum_rate`, `p25`, `median`, `p75`, and `maximum_rate`. Rate statistics are
+fractions from 0 to 1; `weekly.hit_pct` is included for terminal readability. A
+period with no qualifying weekly combinations returns a one-row summary with zero
+weeks and null rate statistics plus an empty, typed `weekly` table.
+
+This estimates an empirical weekly cohort envelope, not the probability of one
+specific four-player selection. Players in a quartet share an NFL week but need not
+be in the same game. The retrieval source remains directly inspectable at
+`queries/historical/threshold_events/parlay_0002.sql`; it is invoked through the
+registered Python analysis because the post-query statistics are intentionally
+Python-owned.
 
 Terminal output includes identity, execution type, resolved parameter values, each
 named table, and unsupported scoring components when a Stage 4 analysis reports

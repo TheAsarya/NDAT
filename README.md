@@ -21,6 +21,7 @@ interface:
 uv run python -m ndat.query list
 uv run python -m ndat.query show historical.receiving-threshold
 uv run python -m ndat.query run historical.receiving-threshold
+uv run python -m ndat.query run historical.parlay-wr1-envelope
 ```
 
 Any `.sql` file can also run directly without library metadata. An adjacent TOML
